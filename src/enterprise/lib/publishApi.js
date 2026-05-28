@@ -80,3 +80,30 @@ export async function updatePublishJob(id, patch) {
 export async function getPublishFillPack(id) {
   return entFetch(`${PUBLISH}/jobs/${encodeURIComponent(id)}/fill-pack`);
 }
+
+/** @param {string} id @param {object} [fillResult] */
+export async function markPublishJobFilled(id, fillResult = {}) {
+  const data = await entFetch(`${PUBLISH}/jobs/${encodeURIComponent(id)}/mark-filled`, {
+    method: "POST",
+    body: JSON.stringify({ fillResult }),
+  });
+  return data.job;
+}
+
+/** @param {string} id @param {{ platformProductId?: string, note?: string }} [payload] */
+export async function markPublishJobPublished(id, payload = {}) {
+  const data = await entFetch(`${PUBLISH}/jobs/${encodeURIComponent(id)}/mark-published`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  return data.job;
+}
+
+/** @param {string} id @param {string} error */
+export async function markPublishJobFailed(id, error) {
+  const data = await entFetch(`${PUBLISH}/jobs/${encodeURIComponent(id)}/mark-failed`, {
+    method: "POST",
+    body: JSON.stringify({ error }),
+  });
+  return data.job;
+}

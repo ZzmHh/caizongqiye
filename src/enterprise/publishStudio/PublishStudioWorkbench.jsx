@@ -20,7 +20,8 @@ import {
   generateListing,
   listPublishJobs,
   createPublishJob,
-  updatePublishJob,
+  markPublishJobPublished,
+  markPublishJobFailed,
 } from "../lib/publishApi.js";
 import "../creativeStudio/creativeStudio.css";
 import "../csStudio/csStudio.css";
@@ -515,6 +516,7 @@ function PublishStep({
   publishJobs,
   lastJob,
   onMarkPublished,
+  onMarkFailed,
   scope,
 }) {
   return (
@@ -554,12 +556,19 @@ function PublishStep({
                 <p>
                   任务 ID：<code>{lastJob.id}</code>
                 </p>
-                <p className="ent-publish-meta">在插件弹窗可填入此 ID，或在 TikTok 新建商品页点「填入上架包」</p>
+                <p className="ent-publish-meta">
+                  状态：{JOB_STATUS_LABEL[lastJob.status] || lastJob.status}。在插件弹窗可填入此 ID，或在 TikTok 新建商品页点「填入上架包」。
+                </p>
               </>
             ) : null}
-            <button type="button" className="enterprise-btn enterprise-btn-secondary" onClick={onMarkPublished}>
-              我已在卖家中心点发布
-            </button>
+            <div className="ent-publish-nav-row ent-publish-nav-row--center">
+              <button type="button" className="enterprise-btn enterprise-btn-secondary" onClick={onMarkPublished}>
+                我已在卖家中心点发布
+              </button>
+              <button type="button" className="enterprise-btn enterprise-btn-ghost" onClick={onMarkFailed}>
+                标记失败
+              </button>
+            </div>
           </div>
         )}
 
@@ -569,6 +578,7 @@ function PublishStep({
             <thead>
               <tr>
                 <th>商品</th>
+                <th>任务 ID</th>
                 <th>状态</th>
                 <th>更新</th>
               </tr>
@@ -576,16 +586,20 @@ function PublishStep({
             <tbody>
               {publishJobs.length === 0 ? (
                 <tr>
-                  <td colSpan={3}>暂无任务</td>
+                  <td colSpan={4}>暂无任务</td>
                 </tr>
               ) : (
                 publishJobs.map((job) => (
                   <tr key={job.id}>
                     <td>{job.title}</td>
                     <td>
+                      <code>{job.id.slice(0, 8)}</code>
+                    </td>
+                    <td>
                       <span className={`ent-publish-job-status is-${job.status}`}>
                         {JOB_STATUS_LABEL[job.status] || job.status}
                       </span>
+                      {job.error ? <div className="ent-publish-meta">{job.error}</div> : null}
                     </td>
                     <td>{formatJobDate(job.updatedAt)}</td>
                   </tr>
@@ -758,9 +772,24 @@ export function PublishStudioWorkbench({ user }) {
   async function handleMarkPublished() {
     if (!lastJob?.id) return;
     try {
-      await updatePublishJob(lastJob.id, { status: "published" });
+      const job = await markPublishJobPublished(lastJob.id);
+      setLastJob(job);
       await refreshJobs();
       setToast("已标记为已上架");
+    } catch (err) {
+      setToast(err.message || "更新失败");
+    }
+  }
+
+  async function handleMarkFailed() {
+    if (!lastJob?.id) return;
+    const reason = window.prompt("请输入失败原因", "平台页面校验未通过");
+    if (reason == null) return;
+    try {
+      const job = await markPublishJobFailed(lastJob.id, reason);
+      setLastJob(job);
+      await refreshJobs();
+      setToast("已标记为失败");
     } catch (err) {
       setToast(err.message || "更新失败");
     }
@@ -778,6 +807,7 @@ export function PublishStudioWorkbench({ user }) {
           publishJobs={publishJobs}
           lastJob={null}
           onMarkPublished={() => {}}
+          onMarkFailed={() => {}}
           scope={scope}
         />
       );
@@ -839,6 +869,7 @@ export function PublishStudioWorkbench({ user }) {
             publishJobs={publishJobs}
             lastJob={lastJob}
             onMarkPublished={handleMarkPublished}
+            onMarkFailed={handleMarkFailed}
             scope={scope}
           />
         );

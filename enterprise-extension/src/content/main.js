@@ -61,7 +61,7 @@
       }
       const result = await EnterpriseListingFill.fill(pack);
       if (result.ok) {
-        await EnterpriseApi.markJobFilled(jobId);
+        await EnterpriseApi.markJobFilled(jobId, result);
         setStatus(result.message || "已填入");
       } else {
         setStatus(result.message || "填表失败");

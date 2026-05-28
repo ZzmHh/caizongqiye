@@ -14,8 +14,10 @@ import { ProfitStudioWorkbench } from "../profitStudio/ProfitStudioWorkbench.jsx
 import { ListingStudioWorkbench } from "../listingStudio/ListingStudioWorkbench.jsx";
 import { ContentStudioWorkbench } from "../contentStudio/ContentStudioWorkbench.jsx";
 import { PublishStudioWorkbench } from "../publishStudio/PublishStudioWorkbench.jsx";
+import { TrendStudioWorkbench } from "../trendStudio/TrendStudioWorkbench.jsx";
 import { useScopeShopId } from "../scope/useScopeShopId.js";
 
+const TREND_STUDIO_AGENTS = new Set(["trend"]);
 const CREATIVE_STUDIO_AGENTS = new Set(["visual", "video"]);
 const CS_STUDIO_AGENTS = new Set(["service"]);
 const GROWTH_STUDIO_AGENTS = new Set(["growth"]);
@@ -83,6 +85,16 @@ export function EnterpriseWorkbenchPage({ agentId, user }) {
     setBusy(false);
   }, [agent.id, agent.prompt]);
 
+  if (TREND_STUDIO_AGENTS.has(agent.id)) {
+    return (
+      <div className="ent-wb-stage ent-wb-stage--creative">
+        <section className="ent-wb-main">
+          <TrendStudioWorkbench user={user} />
+        </section>
+      </div>
+    );
+  }
+
   function buildAgentInputText() {
     const lines = [input.trim()];
     spec.fields?.forEach((f) => {
@@ -132,15 +144,15 @@ export function EnterpriseWorkbenchPage({ agentId, user }) {
   }
 
   if (CS_STUDIO_AGENTS.has(agent.id)) {
-    return wrapStudio(<CsStudioWorkbench user={user} />);
+    return wrapStudio(<CsStudioWorkbench user={user} scopeShopId={scopeShopId} />);
   }
 
   if (GROWTH_STUDIO_AGENTS.has(agent.id)) {
-    return wrapStudio(<GrowthStudioWorkbench user={user} />);
+    return wrapStudio(<GrowthStudioWorkbench user={user} scopeShopId={scopeShopId} />);
   }
 
   if (PROFIT_STUDIO_AGENTS.has(agent.id)) {
-    return wrapStudio(<ProfitStudioWorkbench user={user} />);
+    return wrapStudio(<ProfitStudioWorkbench user={user} scopeShopId={scopeShopId} />);
   }
 
   if (LISTING_STUDIO_AGENTS.has(agent.id)) {

@@ -62,7 +62,30 @@ async function main() {
   });
   const pubData = await pubRes.json();
   if (!pubRes.ok) throw new Error(pubData.error || "publish job failed");
-  console.log("OK POST /api/enterprise/publish/jobs", pubData.job?.id);
+  const jobId = pubData.job?.id;
+  console.log("OK POST /api/enterprise/publish/jobs", jobId);
+
+  const fillRes = await fetch(`${BASE}/api/enterprise/publish/jobs/${encodeURIComponent(jobId)}/mark-filled`, {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ fillResult: { filled: 4, fields: [{ name: "title", status: "filled" }] } }),
+  });
+  const fillData = await fillRes.json();
+  if (!fillRes.ok || fillData.job?.status !== "filled") {
+    throw new Error(fillData.error || "publish mark-filled failed");
+  }
+  console.log("OK POST /api/enterprise/publish/jobs/:id/mark-filled");
+
+  const publishedRes = await fetch(`${BASE}/api/enterprise/publish/jobs/${encodeURIComponent(jobId)}/mark-published`, {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ platformProductId: "TT-SMOKE" }),
+  });
+  const publishedData = await publishedRes.json();
+  if (!publishedRes.ok || publishedData.job?.status !== "published") {
+    throw new Error(publishedData.error || "publish mark-published failed");
+  }
+  console.log("OK POST /api/enterprise/publish/jobs/:id/mark-published");
 
   const jobsRes = await fetch(`${BASE}/api/enterprise/publish/jobs?shopId=${encodeURIComponent(shopId)}`, { headers });
   const jobsData = await jobsRes.json();

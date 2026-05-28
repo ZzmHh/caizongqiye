@@ -43,7 +43,53 @@ function handleError(res, error) {
 }
 
 /** @param {string} answer */
-function parseListingFromLlm(answer) {
+function extractJsonObject(answer) {
+  const text = String(answer || "").trim();
+  if (!text) return null;
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const raw = fenced?.[1]?.trim() || text;
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  try {
+    return JSON.parse(raw.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+}
+
+/** @param {unknown} value */
+function toStringArray(value, max = 8) {
+  if (Array.isArray(value)) return value.map((v) => String(v || "").trim()).filter(Boolean).slice(0, max);
+  if (typeof value === "string") {
+    return value
+      .split(/\n|；|;|、/)
+      .map((v) => v.replace(/^[-*•\d.)\s]+/, "").trim())
+      .filter(Boolean)
+      .slice(0, max);
+  }
+  return [];
+}
+
+/** @param {string} answer */
+function normalizeListingFromLlm(answer) {
+  const obj = extractJsonObject(answer);
+  if (obj && typeof obj === "object") {
+    const bullets = toStringArray(obj.bullets || obj.sellingPoints || obj.points, 8);
+    const keywords = toStringArray(obj.keywords, 20);
+    return {
+      title: String(obj.title || "").trim().slice(0, 220),
+      bullets,
+      keywords: keywords.join(", "),
+      categoryHint: String(obj.categoryHint || obj.category || "").trim().slice(0, 200),
+      description: String(obj.description || bullets.join("\n") || "").trim().slice(0, 5000),
+      attributes: obj.attributes && typeof obj.attributes === "object" ? obj.attributes : {},
+      complianceNotes: toStringArray(obj.complianceNotes || obj.risks, 8),
+      raw: String(answer || ""),
+      format: "json",
+    };
+  }
+
   const text = String(answer || "").trim();
   const titleMatch = text.match(/(?:标题|Title)[：:]\s*(.+)/i);
   const bullets = [];
@@ -59,7 +105,10 @@ function parseListingFromLlm(answer) {
     keywords: kwMatch?.[1]?.trim() || "",
     categoryHint: catMatch?.[1]?.trim() || "",
     description: text,
+    attributes: {},
+    complianceNotes: [],
     raw: text,
+    format: "fallback-text",
   };
 }
 
@@ -179,6 +228,10 @@ export function registerEnterpriseCollectRoutes(app, deps) {
 
       const { market, language, titleStrategy } = req.body || {};
       const prompt = [
+        "你必须只返回一个 JSON 对象，不要 Markdown，不要解释。",
+        "JSON schema:",
+        '{"title":"string","bullets":["string"],"keywords":["string"],"categoryHint":"string","description":"string","attributes":{"material":"string","size":"string","color":"string"},"complianceNotes":["string"]}',
+        "",
         `货源平台：${item.sourcePlatform}`,
         `货源链接：${item.sourceUrl}`,
         `原标题：${item.title}`,
@@ -188,7 +241,7 @@ export function registerEnterpriseCollectRoutes(app, deps) {
         language ? `文案语言：${language}` : "泰语+英语",
         titleStrategy ? `标题策略：${titleStrategy}` : "",
         "",
-        "请输出：标题、5条卖点 bullet、关键词、类目建议。",
+        "请生成适合跨境电商上架的本地化 Listing。bullets 返回 5 条，keywords 返回 8-12 个关键词。",
       ]
         .filter(Boolean)
         .join("\n");
@@ -205,7 +258,10 @@ export function registerEnterpriseCollectRoutes(app, deps) {
       }
 
       const answer = data?.choices?.[0]?.message?.content || "";
-      const listing = parseListingFromLlm(answer);
+      const listing = normalizeListingFromLlm(answer);
+      if (!listing.title) {
+        listing.title = item.title;
+      }
       const updated = updateCollectItem(orgId, item.id, { listing, status: "listed" });
       res.json({ ok: true, item: updated, answer, listing, provider: providerName, model });
     }),
@@ -263,6 +319,7 @@ export function registerEnterpriseCollectRoutes(app, deps) {
           listing: body.listing || item.listing,
           sourceUrl: item.sourceUrl,
           sourcePriceCny: item.priceCny,
+          images: item.images,
           salePrice: body.salePrice,
           stock: body.stock,
           fulfillment: body.fulfillment,
@@ -285,7 +342,7 @@ export function registerEnterpriseCollectRoutes(app, deps) {
       const orgId = orgIdFromUser(req.user);
       const body = req.body || {};
       const allowed = {};
-      for (const key of ["status", "platformProductId", "error", "salePrice", "stock", "listing"]) {
+      for (const key of ["status", "platformProductId", "error", "salePrice", "stock", "listing", "fillResult", "note"]) {
         if (body[key] !== undefined) allowed[key] = body[key];
       }
       const job = updatePublishJob(orgId, req.params.id, allowed);
@@ -302,7 +359,40 @@ export function registerEnterpriseCollectRoutes(app, deps) {
   app.post("/api/enterprise/publish/jobs/:id/mark-filled", enterpriseAuthMiddleware, (req, res) => {
     try {
       const orgId = orgIdFromUser(req.user);
-      const job = updatePublishJob(orgId, req.params.id, { status: "filled" });
+      const job = updatePublishJob(orgId, req.params.id, {
+        status: "filled",
+        fillResult: req.body?.fillResult || req.body || null,
+      });
+      if (!job) return res.status(404).json({ error: "发布任务不存在。" });
+      res.json({ ok: true, job });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  app.post("/api/enterprise/publish/jobs/:id/mark-published", enterpriseAuthMiddleware, (req, res) => {
+    try {
+      const orgId = orgIdFromUser(req.user);
+      const job = updatePublishJob(orgId, req.params.id, {
+        status: "published",
+        platformProductId: req.body?.platformProductId || null,
+        note: req.body?.note || "",
+      });
+      if (!job) return res.status(404).json({ error: "发布任务不存在。" });
+      if (job.collectItemId) updateCollectItem(orgId, job.collectItemId, { status: "published" });
+      res.json({ ok: true, job });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  app.post("/api/enterprise/publish/jobs/:id/mark-failed", enterpriseAuthMiddleware, (req, res) => {
+    try {
+      const orgId = orgIdFromUser(req.user);
+      const job = updatePublishJob(orgId, req.params.id, {
+        status: "failed",
+        error: String(req.body?.error || "发布失败，请检查平台页面提示。").slice(0, 1000),
+      });
       if (!job) return res.status(404).json({ error: "发布任务不存在。" });
       res.json({ ok: true, job });
     } catch (error) {

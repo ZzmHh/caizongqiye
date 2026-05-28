@@ -6,6 +6,7 @@ import { readDb, writeDb } from "./repositories/index.js";
 
 const MAX_COLLECT_PER_ORG = 500;
 const MAX_JOBS_PER_ORG = 1000;
+const PUBLISH_STATUSES = new Set(["ready", "filled", "published", "failed"]);
 
 /** @param {import("./enterpriseAuth.js").EnterpriseUser} user */
 export function orgIdFromUser(user) {
@@ -157,8 +158,14 @@ export function createPublishJob(orgId, shopId, payload, userId = "") {
     sourceUrl: String(payload.sourceUrl || "").slice(0, 2000),
     sourcePriceCny: payload.sourcePriceCny != null ? Number(payload.sourcePriceCny) : null,
     status: "ready",
+    statusHistory: [{ status: "ready", at: now, byUserId: userId || null }],
+    readyAt: now,
+    filledAt: null,
+    publishedAt: null,
+    failedAt: null,
     platformProductId: null,
     fillPack: buildFillPack(payload),
+    fillResult: null,
     error: null,
     createdByUserId: userId || null,
     createdAt: now,
@@ -183,6 +190,9 @@ function buildFillPack(payload) {
     salePrice: payload.salePrice != null ? String(payload.salePrice) : "",
     stock: payload.stock != null ? String(payload.stock) : "99",
     keywords: String(listing.keywords || ""),
+    categoryHint: String(listing.categoryHint || ""),
+    attributes: listing.attributes && typeof listing.attributes === "object" ? listing.attributes : {},
+    images: Array.isArray(payload.images) ? payload.images.map(String).slice(0, 20) : [],
     sourceUrl: String(payload.sourceUrl || ""),
   };
 }
@@ -198,13 +208,32 @@ export function updatePublishJob(orgId, id, patch) {
   const idx = db.enterprisePublishJobs.findIndex((j) => j.orgId === orgId && j.id === id);
   if (idx < 0) return null;
   const prev = db.enterprisePublishJobs[idx];
+  const now = new Date().toISOString();
   const next = {
     ...prev,
     ...patch,
     id: prev.id,
     orgId: prev.orgId,
-    updatedAt: new Date().toISOString(),
+    updatedAt: now,
   };
+  if (patch.status !== undefined) {
+    const status = String(patch.status || "");
+    if (!PUBLISH_STATUSES.has(status)) return null;
+    next.status = status;
+    next.statusHistory = [
+      ...(Array.isArray(prev.statusHistory) ? prev.statusHistory : []),
+      { status, at: now, note: patch.error || patch.note || "" },
+    ].slice(-50);
+    if (status === "filled") next.filledAt = now;
+    if (status === "published") {
+      next.publishedAt = now;
+      next.error = null;
+    }
+    if (status === "failed") next.failedAt = now;
+  }
+  if (patch.fillResult !== undefined) {
+    next.fillResult = patch.fillResult && typeof patch.fillResult === "object" ? patch.fillResult : null;
+  }
   if (patch.listing !== undefined) {
     next.listing = patch.listing && typeof patch.listing === "object" ? patch.listing : prev.listing;
     next.fillPack = buildFillPack({ ...next, listing: next.listing });

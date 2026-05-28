@@ -135,10 +135,24 @@ const EnterpriseApi = {
     return this.request(`/api/enterprise/publish/jobs/${encodeURIComponent(jobId)}/fill-pack`);
   },
 
-  async markJobFilled(jobId) {
+  async markJobFilled(jobId, fillResult = {}) {
     return this.request(`/api/enterprise/publish/jobs/${encodeURIComponent(jobId)}/mark-filled`, {
       method: "POST",
-      body: JSON.stringify({}),
+      body: JSON.stringify({ fillResult }),
+    });
+  },
+
+  async markJobPublished(jobId, payload = {}) {
+    return this.request(`/api/enterprise/publish/jobs/${encodeURIComponent(jobId)}/mark-published`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async markJobFailed(jobId, error) {
+    return this.request(`/api/enterprise/publish/jobs/${encodeURIComponent(jobId)}/mark-failed`, {
+      method: "POST",
+      body: JSON.stringify({ error }),
     });
   },
 };
